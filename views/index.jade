@@ -1,0 +1,23 @@
+extends layout
+
+block content
+  h1= title
+  p Listagem de Processos
+  a(href='/process/new') Novo
+  table
+    thead
+      tr
+        th ID
+        th Process
+        th Ações
+    tbody
+      each process, i in rowsdata
+        tr
+          td 
+            #{process.ID} 
+          td
+            #{process.PROCESSSTATE.substr(0,250)}
+          td
+            a(href='/process/resume/' + process.ID) Resume
+            br
+            a(href='/process/delete/' + process.ID) Delete
