@@ -18,7 +18,10 @@ router.get('/new', function(req, res, next) {
             processXml=data.toString();
             const engine = new Bpmn.Engine({
                 name: 'execution example',
-                source: processXml
+                source: processXml,
+                moddleOptions: {
+                    camunda: require('camunda-bpmn-moddle/resources/camunda')
+                }
             });
             const idp = Math.floor(Math.random() * 10000);
 
@@ -68,8 +71,10 @@ router.get('/new', function(req, res, next) {
   });
 
 
-  router.get('/resume/:id', function(req, res, next) {
+  router.get('/resume/:id/:approved?', function(req, res, next) {
     var idp = req.params.id;
+    var approved = req.params.approved;
+    
     sqlite.connect('myDatabase.db');
     var rows = sqlite.run("SELECT * FROM BPMPROCESS WHERE ID = ?", [idp]);
     
@@ -77,7 +82,9 @@ router.get('/new', function(req, res, next) {
     
     //state = rows[0].PROCESSSTATE;
     
-    Bpmn.Engine.resume(state,{},(err,newEngine) => {
+    Bpmn.Engine.resume(state,{moddleOptions: {
+        camunda: require('camunda-bpmn-moddle/resources/camunda')
+        }},(err,newEngine) => {
         
         if (err) throw err;
         const listener = new EventEmitter();
@@ -104,23 +111,16 @@ router.get('/new', function(req, res, next) {
         
         listener.on('start', (task, instance) => {
             console.debug('EVENTO start  ', task.id);
+            
             if (task.type === 'bpmn:ExclusiveGateway') {
-                if (task.id == "ExclusiveGateway_18c6n90"){
-                    console.log("GATEWAY ");
-                    var inputoutput = task.activity.extensionElements.values[0];
-                    console.log(inputoutput);
-                    inputoutput['$children'].forEach(function(item) {  
-                        if(item.name == "aprovacao"){
-                            item['$body'] = false;
-                        }
-                    });
-                }
+                
             }
         });
+        /* Não utilizar
         listener.on('enter', (task, instance) => {
             console.debug('EVENTO enter  ', task.id);
             
-        });
+        });*/
         /* Chamada assincrona, sugiro nao utilizar.
         listener.on('leave', (task) => {
             console.debug('leave  ', task.id);
@@ -133,53 +133,62 @@ router.get('/new', function(req, res, next) {
             console.log("EVENTO wait " + task.id);
             var inputoutput = task.activity.extensionElements.values[0];
             var flagcontinue = true;
-            for(var i=0;i<inputoutput['$children'].length;i++){
-                var item = inputoutput['$children'][i];
-                if(item.name == "done" && item['$body'] == "true"){
-                    console.log("VARIAVEL DONE TRUE -> CONTINUANDO");
-                    flagcontinue = false;
-                    instance.signal(task.id);
+            if(inputoutput['inputParameters'] != undefined){
+                for(var i=0;i<inputoutput['inputParameters'].length;i++){
+                    var item = inputoutput['inputParameters'][i];
+                    if(item.name == "done" && item['value'] == "true"){
+                        console.log("VARIAVEL DONE TRUE -> CONTINUANDO");
+                        flagcontinue = false;
+                        instance.signal(task.id);
+                    }
                 }
             }
             if(flagcontinue){
                 if (task.type === 'bpmn:UserTask') {
-                    console.log("TASK EM WAIT");
-                    if (task.id == "task1"){
-                        inputoutput['$children'].forEach(function(item) {  
-                            if(item.name == "done"){
-                                item['$body'] = "true";
-                            }
-                        });
-                        
-                        var retorno = instance.signal(task.id);
-                        console.log("RETORNO SIGNAL"+ retorno);
-                        newEngine.stop();
-                    }
-                    if (task.id == "task2"){
-                        inputoutput['$children'].forEach(function(item) {  
-                            if(item.name == "done"){
-                                item['$body'] = "true";
-                            }
-                            if(item.name == "aprovacao"){
-                                item['$body'] = "false";
-                            }
-                        });
+                    console.log("TASK EM WAIT - " + task.id);
+                    if (approved != undefined) {
 
-                        var retorno = instance.signal(task.id);
-                        console.log("RETORNO SIGNAL"+ retorno);
-                        newEngine.stop();
-                    }
+                        if(inputoutput['inputParameters'] != undefined){
+
+                            for(var i=0;i<inputoutput['inputParameters'].length;i++){
+                                var item = inputoutput['inputParameters'][i];
+                                if(item.name == "done"){
+                                    item.value = "true";
+                                }
+                            }
+                        }
+                        if(inputoutput['outputParameters'] != undefined){
+
+                            for(var i=0;i<inputoutput['outputParameters'].length;i++){
+                                var item = inputoutput['outputParameters'][i];
+                                if(item.name == "aprovacao"){
+                                        
+                                    if(approved == "true"){
+                                        console.log("APROVADO " + approved);
+                                        item.value = '${true}';
+                                    }else{
+                                        console.log("APROVADO " + approved);
+                                        item.value = '${false}';
+                                    }
+                                }
+                            }
+                        }
+                    }   
+                    var retorno = instance.signal(task.id);
+                    console.log("RETORNO SIGNAL"+ retorno);
+                    newEngine.stop();
+
+                    
                 }
             }
         });
         listener.on('end', (task, instance) => {
-            if (task.type === 'bpmn:UserTask') {
-                console.debug('EVENTO end  ', task.id);
+            console.debug('EVENTO end  ', task.id);
+            if(task.activity.extensionElements != undefined){
             }
         });
         listener.on('error', (err, eventSource) => {
             console.debug('EVENTO error ', err);
-            
         });
         
         newEngine.execute({
